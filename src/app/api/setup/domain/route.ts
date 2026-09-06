@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 	try {
 		const provisioned = await provisionDomainOnCloudflare(env, parsed.data.hostname, {
 			enableRouting: true,
-			enableSending: true,
+			enableSending: false,
 		});
 		return NextResponse.json({
 			domain: {
