@@ -109,16 +109,28 @@ export async function getDomainDns(
 	env: CloudflareEnv,
 	domain: typeof domains.$inferSelect,
 ): Promise<DomainDnsView> {
-	const [routingDns, routingSettings, sendingSubdomains] = await Promise.all([
+	const [routingDns, routingSettings] = await Promise.all([
 		getEmailRoutingDns(env, domain.zoneId),
 		getEmailRoutingSettings(env, domain.zoneId),
-		listSendingSubdomains(env, domain.zoneId),
 	]);
-	const sendingSubdomain = findSendingSubdomain(domain.hostname, sendingSubdomains);
+
+	// Sending status requires the Workers Paid plan even just to read — a
+	// receive-only account on the Free plan will 401 here. That must not fail
+	// the whole status view (or, transitively, registration/rollback further
+	// up the call chain): degrade to "sending not available" instead.
 	let sending: CfDnsRecord[] = [];
-	if (sendingSubdomain?.tag) {
-		sending = await getSendingSubdomainDns(env, domain.zoneId, sendingSubdomain.tag);
+	let sendingEnabled = false;
+	try {
+		const sendingSubdomains = await listSendingSubdomains(env, domain.zoneId);
+		const sendingSubdomain = findSendingSubdomain(domain.hostname, sendingSubdomains);
+		if (sendingSubdomain?.tag) {
+			sending = await getSendingSubdomainDns(env, domain.zoneId, sendingSubdomain.tag);
+		}
+		sendingEnabled = sendingSubdomain?.enabled ?? false;
+	} catch (err) {
+		console.warn("getDomainDns: sending subdomain lookup failed (likely requires Workers Paid plan)", err);
 	}
+
 	return {
 		routing: {
 			records: routingDns.records,
@@ -126,7 +138,7 @@ export async function getDomainDns(
 			status: routingSettings.status,
 		},
 		sending,
-		sendingEnabled: sendingSubdomain?.enabled ?? false,
+		sendingEnabled,
 	};
 }
 
